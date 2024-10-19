@@ -7,13 +7,13 @@ from tqdm import tqdm
 FIRST_DIR = (
     os.environ.get("FIRST_DIR")
     or globals().get("FIRST_DIR")
-    or "output/extractions/first_small"
+    or "output/extractions/good"
 )
 
 SECOND_DIR = (
     os.environ.get("SECOND_DIR")
     or globals().get("SECOND_DIR")
-    or "output/extractions/good"
+    or "output/extractions/bad"
 )
 
 DIFF_DIR = (
