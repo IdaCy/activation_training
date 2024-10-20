@@ -9,7 +9,7 @@ torch.serialization.add_safe_globals(['numpy._core.multiarray._reconstruct'])
 PCA_DIR = (
     os.environ.get("PCA_DIR")
     or globals().get("PCA_DIR")
-    or "outputs/PCA"
+    or "output/PCA"
 )
 
 RESULTS_PT = (
