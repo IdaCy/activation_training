@@ -1,124 +1,136 @@
 import os
+import logging
 import torch
 import pandas as pd
-import difflib
-from transformers import AutoTokenizer, AutoModelForCausalLM, AutoConfig
+from transformers import AutoTokenizer, AutoModelForCausalLM
 
 # ------------------------------------------------------------------------
-# Configuration
+# 1. Configuration and Setup
 # ------------------------------------------------------------------------
-
-CLEAN_FILE = "/workspace/prompts/preprocessed/cleanQs.csv"
-TYPO_FILE = "/workspace/prompts/preprocessed/typoQs.csv"
-OUTPUT_DIR = "/workspace/gemma/extractions"
+PROMPT_FILE = globals().get("PROMPT_FILE", "prompts/nice.csv")
+OUTPUT_DIR = globals().get("OUTPUT_DIR", "output/extractions/jb")
 os.makedirs(OUTPUT_DIR, exist_ok=True)
 
-# **POINT THIS TO YOUR LOCAL GEMMA2-2B CHECKPOINT FOLDER**
-MODEL_NAME = "google/gemma-2-2b"
-HF_TOKEN = "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"
+MODEL_NAME = globals().get("MODEL_NAME", "google/gemma-2-2b")
 
-BATCH_SIZE = 16
-USE_BFLOAT16 = True  # Use bfloat16 for storage efficiency
-MAX_SEQ_LENGTH = 512
-TOP_K_LOGITS = 10  # Store only top-10 logits per token
+BATCH_SIZE = globals().get("BATCH_SIZE", 2)
+USE_BFLOAT16 = globals().get("USE_BFLOAT16", True)
+MAX_SEQ_LENGTH = globals().get("MAX_SEQ_LENGTH", 2048)
 
-# Layers to extract
-EXTRACT_HIDDEN_LAYERS = [0, 1, 2, 3, 4, 5, 10, 15, 20, 25]
-EXTRACT_ATTENTION_LAYERS = [10, 15, 20, 25]  # Attention stored only in these layers
-FINAL_LAYER = 25  # Logits & probabilities from final layer
+EXTRACT_HIDDEN_LAYERS = globals().get("EXTRACT_HIDDEN_LAYERS", [0, 5, 10, 15, 20, 25])
+EXTRACT_ATTENTION_LAYERS = globals().get("EXTRACT_ATTENTION_LAYERS", [0, 5, 10, 15, 20, 25])
+TOP_K_LOGITS = globals().get("TOP_K_LOGITS", 10)
+
+LOG_FILE = globals().get("LOG_FILE", "logs/jb_gemma_run_progress.log")
+ERROR_LOG = globals().get("ERROR_LOG", "logs/jb_gemma_run_errors.log")
+os.makedirs(os.path.dirname(LOG_FILE), exist_ok=True)
+os.makedirs(os.path.dirname(ERROR_LOG), exist_ok=True)
+
+NUM_SAMPLES = globals().get("NUM_SAMPLES", None)
+if isinstance(NUM_SAMPLES, str) and NUM_SAMPLES.isdigit():
+    NUM_SAMPLES = int(NUM_SAMPLES)
+
+HF_TOKEN = os.environ.get("HF_TOKEN", None)
+hf_token_src = "environment" if HF_TOKEN else "none"
+
+if not HF_TOKEN:
+    # Check globals as fallback
+    possible_global_token = globals().get("HF_TOKEN", None)
+    if possible_global_token:
+        HF_TOKEN = possible_global_token
+        hf_token_src = "globals"
 
 # ------------------------------------------------------------------------
-# Load Model and Tokenizer
+# 1a. Set up Logging
 # ------------------------------------------------------------------------
+logger = logging.getLogger("GemmaLogger")
+logger.setLevel(logging.DEBUG)  # Capture everything
 
-# 1) Initialize tokenizer from local checkpoint
+# File handler
+file_handler = logging.FileHandler(LOG_FILE, mode="a", encoding="utf-8")
+file_handler.setLevel(logging.DEBUG)
+file_formatter = logging.Formatter("%(asctime)s [%(levelname)s] %(message)s")
+file_handler.setFormatter(file_formatter)
+logger.addHandler(file_handler)
+
+# Console handler
+console_handler = logging.StreamHandler()
+console_handler.setLevel(logging.INFO)
+console_formatter = logging.Formatter("[%(levelname)s] %(message)s")
+console_handler.setFormatter(console_formatter)
+logger.addHandler(console_handler)
+
+logger.info("=== Starting Gemma-based inference script ===")
+logger.info(f"Log file: {LOG_FILE}")
+logger.info(f"Error log: {ERROR_LOG}")
+logger.info(f"Model name: {MODEL_NAME}")
+if HF_TOKEN:
+    logger.info(f"Using HF_TOKEN from {hf_token_src} (first 8 chars): {HF_TOKEN[:8]}...")
+else:
+    logger.warning("No HF_TOKEN found; proceeding without auth token")
+
+# ------------------------------------------------------------------------
+# 2. Load Data
+# ------------------------------------------------------------------------
+def load_sentences(file_path):
+    """Reads a file line-by-line to ensure no unwanted splitting occurs."""
+    logger.debug(f"Loading lines from {file_path}")
+    with open(file_path, "r", encoding="utf-8") as f:
+        sentences = [line.strip() for line in f.readlines() if line.strip()]
+    return pd.DataFrame(sentences, columns=["sentence"])
+
+df_clean = load_sentences(PROMPT_FILE)
+all_texts = df_clean['sentence'].tolist()
+
+if NUM_SAMPLES is not None and NUM_SAMPLES < len(all_texts):
+    logger.info(f"Truncating dataset to first {NUM_SAMPLES} lines.")
+    all_texts = all_texts[:NUM_SAMPLES]
+
+logger.info(f"Loaded {len(all_texts)} samples for inference from {PROMPT_FILE}.")
+
+# ------------------------------------------------------------------------
+# 3. Managing GPU Memory
+# ------------------------------------------------------------------------
+logger.info("Clearing CUDA cache and setting up GPU memory usage.")
+torch.cuda.empty_cache()
+os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
+
+if torch.cuda.is_available():
+    gpu_mem = torch.cuda.get_device_properties(0).total_memory // (1024 ** 3)
+    max_memory = {0: f"{int(gpu_mem * 0.9)}GB"}
+    logger.info(f"GPU is available. Setting max_memory={max_memory}")
+else:
+    raise RuntimeError("No GPUs available! Ensure you are running on a GPU node.")
+
+# ------------------------------------------------------------------------
+# 4. Load Model and Tokenizer
+# ------------------------------------------------------------------------
+logger.info(f"Loading tokenizer from {MODEL_NAME}")
 tokenizer = AutoTokenizer.from_pretrained(
     MODEL_NAME,
-    use_auth_token=HF_TOKEN,
-    trust_remote_code=True
+    use_auth_token=HF_TOKEN
 )
-
-# 2) Ensure we have a proper pad token if none is defined
 if tokenizer.pad_token is None:
-    tokenizer.add_special_tokens({'pad_token': '[PAD]'})
-    tokenizer.pad_token = '[PAD]'
+    tokenizer.pad_token = tokenizer.eos_token
+    logger.debug("No pad token found on tokenizer; using eos_token as pad token.")
 
-# 3) Make sure pad_token_id is set in config or on the tokenizer
-config = AutoConfig.from_pretrained(MODEL_NAME, trust_remote_code=True)
-if getattr(tokenizer, "pad_token_id", None) is not None:
-    config.pad_token_id = tokenizer.convert_tokens_to_ids(tokenizer.pad_token)
-else:
-    tokenizer.pad_token_id = tokenizer.convert_tokens_to_ids(tokenizer.pad_token)
-
-# 4) Load the model from local gemma2-2b checkpoint
+logger.info(f"Loading model from {MODEL_NAME} (bfloat16={USE_BFLOAT16}, device_map=auto)")
 model = AutoModelForCausalLM.from_pretrained(
     MODEL_NAME,
-    config=config,
-    trust_remote_code=True,
     torch_dtype=torch.bfloat16 if USE_BFLOAT16 else torch.float32,
     low_cpu_mem_usage=True,
     device_map="auto",
-    attn_implementation="eager",
+    max_memory=max_memory,
     use_auth_token=HF_TOKEN
 )
-
-# If you added a new pad token, resize embeddings
-model.resize_token_embeddings(len(tokenizer))
-
 model.eval()
-print("Model loaded successfully from local gemma2-2b checkpoint.")
+logger.info("Model loaded successfully.")
 
 # ------------------------------------------------------------------------
-# Load Sentences
+# 5. Function to Run Inference and Capture Activations
 # ------------------------------------------------------------------------
-def load_sentences(file_path):
-    """Reads a file line-by-line and returns a list of sentences."""
-    with open(file_path, "r", encoding="utf-8") as f:
-        return [line.strip() for line in f.readlines() if line.strip()]
-
-clean_texts = load_sentences(CLEAN_FILE)
-typo_texts = load_sentences(TYPO_FILE)
-
-if len(clean_texts) != len(typo_texts):
-    raise ValueError("Mismatch between number of clean and typo prompts!")
-
-print(f"Loaded {len(clean_texts)} samples for inference.")
-
-# ------------------------------------------------------------------------
-# Identify Relevant Token Indices
-# ------------------------------------------------------------------------
-def get_relevant_token_indices_pair(clean_text, typo_text, tokenizer, window=3):
-    """Find token positions that differ between clean vs. typo versions."""
-    tokens_clean = tokenizer.tokenize(clean_text)
-    tokens_typo = tokenizer.tokenize(typo_text)
-    sm = difflib.SequenceMatcher(None, tokens_clean, tokens_typo)
-
-    diff_indices_clean, diff_indices_typo = [], []
-    for tag, i1, i2, j1, j2 in sm.get_opcodes():
-        if tag != 'equal':
-            diff_indices_clean.extend(range(i1, i2))
-            diff_indices_typo.extend(range(j1, j2))
-
-    def expand_indices(indices, max_len):
-        expanded = set()
-        for idx in indices:
-            start = max(0, idx - window)
-            end = min(max_len, idx + window + 1)
-            expanded.update(range(start, end))
-        return sorted(expanded)
-
-    return (
-        expand_indices(diff_indices_clean, len(tokens_clean)),
-        tokens_clean,
-        expand_indices(diff_indices_typo, len(tokens_typo)),
-        tokens_typo,
-    )
-
-# ------------------------------------------------------------------------
-# Run Inference and Extract Features
-# ------------------------------------------------------------------------
-def capture_activations(text_batch, indices_batch):
-    """Runs inference on a batch of texts, extracts relevant hidden states, attention, logits, etc."""
+def capture_activations(text_batch, idx):
+    logger.debug(f"Encoding batch {idx} (size={len(text_batch)}) with max_length={MAX_SEQ_LENGTH}")
     try:
         encodings = tokenizer(
             text_batch,
@@ -130,106 +142,92 @@ def capture_activations(text_batch, indices_batch):
         input_ids = encodings["input_ids"].to("cuda")
         attention_mask = encodings["attention_mask"].to("cuda")
 
+        logger.debug("Running forward pass to get hidden_states and attentions.")
         with torch.no_grad():
             outputs = model(
                 input_ids=input_ids,
                 attention_mask=attention_mask,
                 output_hidden_states=True,
-                output_attentions=True,
-                return_dict=True
+                output_attentions=True
             )
 
-        hidden_states = outputs.hidden_states
-        attentions = outputs.attentions
+            logger.debug("Generating short completion from model.generate()")
+            generated_output = model.generate(
+                input_ids,
+                attention_mask=attention_mask,
+                max_new_tokens=50,
+                pad_token_id=tokenizer.pad_token_id,
+                eos_token_id=tokenizer.eos_token_id
+            )
+
+        # 1) Hidden states: only store selected layers
+        selected_hidden_states = {}
+        for layer_idx in EXTRACT_HIDDEN_LAYERS:
+            if layer_idx < len(outputs.hidden_states):
+                layer_tensor = outputs.hidden_states[layer_idx].cpu().to(torch.bfloat16)
+                selected_hidden_states[f"layer_{layer_idx}"] = layer_tensor
+
+        # 2) Attention: only store selected layers
+        selected_attentions = {}
+        for layer_idx in EXTRACT_ATTENTION_LAYERS:
+            if layer_idx < len(outputs.attentions):
+                attn_tensor = outputs.attentions[layer_idx].cpu().to(torch.bfloat16)
+                selected_attentions[f"layer_{layer_idx}"] = attn_tensor
+
+        # 3) Top-k logits
         logits = outputs.logits
-        probabilities = torch.nn.functional.softmax(logits, dim=-1)
+        topk_vals, topk_indices = torch.topk(logits, k=TOP_K_LOGITS, dim=-1)
+        topk_vals = topk_vals.cpu().to(torch.bfloat16)
+        topk_indices = topk_indices.cpu()
 
-        batch_results = {}
+        # 4) Decode generated text
+        final_predictions = [
+            tokenizer.decode(pred, skip_special_tokens=True)
+            for pred in generated_output.cpu()
+        ]
 
-        for i in range(len(text_batch)):
-            relevant_indices = indices_batch[i] if indices_batch else list(range(len(input_ids[i])))
-
-            sample_result = {}
-
-            # Hidden states (only selected layers)
-            sample_result["hidden_states"] = {
-                f"layer_{l}": hidden_states[l][i][relevant_indices].to(torch.bfloat16).cpu()
-                for l in EXTRACT_HIDDEN_LAYERS
-            }
-
-            # Attention scores (only selected attention layers)
-            sample_result["attention_scores"] = {
-                f"layer_{l}": attentions[l][i].mean(dim=0)[relevant_indices].to(torch.bfloat16).cpu()
-                for l in EXTRACT_ATTENTION_LAYERS
-            }
-
-            # Final-layer top-k logits & probabilities
-            top_logits, top_indices = torch.topk(logits[i][relevant_indices], k=TOP_K_LOGITS, dim=-1)
-            top_probs = probabilities[i][relevant_indices].gather(-1, top_indices)
-
-            sample_result["top_k_logits"] = {
-                f"token_{t}": top_logits[j].to(torch.bfloat16).cpu()
-                for j, t in enumerate(relevant_indices)
-            }
-            sample_result["top_k_probs"] = {
-                f"token_{t}": top_probs[j].to(torch.bfloat16).cpu()
-                for j, t in enumerate(relevant_indices)
-            }
-            sample_result["top_k_indices"] = {
-                f"token_{t}": top_indices[j].to(torch.int16).cpu()
-                for j, t in enumerate(relevant_indices)
-            }
-
-            # Generate a short completion for reference
-            generated_ids = model.generate(
-                input_ids=input_ids[i].unsqueeze(0),
-                attention_mask=attention_mask[i].unsqueeze(0),
-                max_new_tokens=20,
-                do_sample=False
-            )
-            sample_result["predicted_text"] = tokenizer.decode(generated_ids[0], skip_special_tokens=True)
-
-            # Store the tokens + original text
-            sample_result["tokens"] = tokenizer.convert_ids_to_tokens(input_ids[i].cpu().tolist())
-            sample_result["original_text"] = text_batch[i]
-
-            batch_results[i] = sample_result
-
-        return batch_results
+        logger.debug(f"Batch {idx} inference complete. Returning activations.")
+        return {
+            "hidden_states": selected_hidden_states,
+            "attentions": selected_attentions,
+            "topk_logits": topk_vals,
+            "topk_indices": topk_indices,
+            "input_ids": input_ids.cpu(),
+            "final_predictions": final_predictions
+        }
 
     except torch.cuda.OutOfMemoryError:
+        logger.error(f"CUDA OOM Error at batch {idx}. Attempting to clear cache.")
+        with open(ERROR_LOG, "a") as err_log:
+            err_log.write(f"OOM Error at index {idx}\n")
         torch.cuda.empty_cache()
+        return None
+    except Exception as e:
+        logger.exception(f"Unhandled error at batch {idx}: {str(e)}")
+        with open(ERROR_LOG, "a") as err_log:
+            err_log.write(f"Error at index {idx}: {str(e)}\n")
         return None
 
 # ------------------------------------------------------------------------
-# Main Loop: Process All Prompts
+# 6. Run Batch Inference and Save Activations
 # ------------------------------------------------------------------------
-print("Starting inference & extraction of relevant activations for clean & typo prompts...")
+logger.info("=== Starting inference process ===")
 
-for start_idx in range(0, len(clean_texts), BATCH_SIZE):
+total_prompts = len(all_texts)
+for start_idx in range(0, total_prompts, BATCH_SIZE):
     end_idx = start_idx + BATCH_SIZE
-    batch_clean, batch_typo = clean_texts[start_idx:end_idx], typo_texts[start_idx:end_idx]
+    batch_texts = all_texts[start_idx:end_idx]
 
-    indices_clean_batch, indices_typo_batch = [], []
-    
-    # Identify relevant tokens for each prompt
-    for clean_txt, typo_txt in zip(batch_clean, batch_typo):
-        rel_clean, tokens_clean, rel_typo, tokens_typo = get_relevant_token_indices_pair(clean_txt, typo_txt, tokenizer)
-        indices_clean_batch.append(rel_clean)
-        indices_typo_batch.append(rel_typo)
+    if start_idx % 1000 == 0:
+        logger.info(f"Processing batch {start_idx} / {total_prompts}...")
 
-    # Capture activations for the clean version
-    activations_clean = capture_activations(batch_clean, indices_clean_batch)
-    # Capture activations for the typo version
-    activations_typo = capture_activations(batch_typo, indices_typo_batch)
+    activations = capture_activations(batch_texts, start_idx)
+    if activations:
+        filename = os.path.join(OUTPUT_DIR, f"activations_{start_idx:05d}_{end_idx:05d}.pt")
+        torch.save(activations, filename)
+        logger.debug(f"Saved activations to {filename}")
 
-    if activations_clean and activations_typo:
-        for i in range(len(batch_clean)):
-            sample_idx = start_idx + i
-            # Save the final results for this sample
-            filename = os.path.join(OUTPUT_DIR, f"activations_{sample_idx:05d}.pt")
-            torch.save({"clean": activations_clean[i], "typo": activations_typo[i]}, filename)
-        print(f"Saved activations for samples {start_idx} to {end_idx}")
+    if start_idx % 5000 == 0 and start_idx > 0:
+        logger.info(f"Saved activations up to batch {start_idx}")
 
-print(f"Inference complete. Results saved in '{OUTPUT_DIR}'.")
-
+logger.info(f"Inference complete. Activations are stored in '{OUTPUT_DIR}'.")
