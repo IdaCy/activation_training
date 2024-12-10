@@ -1,69 +1,17 @@
-test
-test
-test
-test
-test
-test
-test
-test
-test
-test
-test
-test
-test
-test
-test
-test
-test
-test
-test
-test
-test
-test
-test
-test
-test
-test
-test
-test
-test
-test
-test
-test
-test
-test
-test
-test
-test
-test
-test
-test
-test
-test
-test
-test
-test
-test
-test
-test
-test
-test
-test
-test
-test
-test
-test
-test
-test
-test
-test
-test
-test
-test
-test
-test
-test
-test
-test
-test
-test
+name: /Users/ifc24/miniconda3/envs/neurenv
+channels:
+  - defaults
+  - conda-forge
+dependencies:
+  - matplotlib
+  - numpy
+  - pip
+  - python=3.10
+  - tqdm
+  - transformers
+  - pytorch
+  - torchaudio
+  - torchvision
+  - kaggle
+  - datasets
+prefix: /Users/ifc24/miniconda3/envs/neurenv
