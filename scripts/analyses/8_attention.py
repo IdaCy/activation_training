@@ -81,7 +81,7 @@ def extract_attention_stats(attentions, input_ids):
     # We'll produce shape: [B, seq_len] that is average attention each token receives from all heads.
     # For now, averaging across heads *and* “who is looking?” dimension, so we get
     # “attention on token i from all heads & tokens j.”
-    # Another approach is “how much each token i attends to token j,” etc., but we’ll keep it simpler.
+    # Another approach is “how much each token i attends to token j,” etc., but for now: simpler.
     
     stats_per_layer = {}
 
@@ -101,7 +101,7 @@ def extract_attention_stats(attentions, input_ids):
         stats_per_layer[layer_name] = attn_mean  # shape [B, seq_len]
     
     # We could combine layers (e.g. average across layers) or keep them separate:
-    # For illustration, let's produce a single average over all extracted layers:
+    # For now, producing a single average over all extracted layers:
     # We'll stack them up => [num_layers, B, seq_len], then average.
     all_layers = torch.stack(list(stats_per_layer.values()), dim=0)  # [num_layers, B, seq_len]
     avg_across_layers = all_layers.mean(dim=0)  # => [B, seq_len]
