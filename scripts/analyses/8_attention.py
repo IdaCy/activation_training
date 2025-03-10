@@ -20,10 +20,10 @@ os.makedirs(OUTPUT_DIR, exist_ok=True)
 # “Nice” words to look for (lowercased)
 NICE_WORDS = ["please", "kindly", "humbly", "would you", "could you"]
 
-# We assume you have the same tokenizer that was used originally
-# to decode input_ids. If you have a local directory with the model:
-#   tokenizer = AutoTokenizer.from_pretrained("path/to/model")
-# otherwise from HF if you can:
+# Taking same tokenizer that was used originally to decode input_ids. !
+# If you have a local directory with the model:
+# tokenizer = AutoTokenizer.from_pretrained("path/to/model")
+# otherwise from HF:
 tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME)
 
 if tokenizer.pad_token is None:
@@ -79,7 +79,7 @@ def extract_attention_stats(attentions, input_ids):
     """
     # layers in attentions: e.g. attentions["layer_0"], shape = [B, nH, seq_len, seq_len]
     # We'll produce shape: [B, seq_len] that is average attention each token receives from all heads.
-    # For demonstration, let’s average across heads *and* “who is looking?” dimension, so we get
+    # For now, averaging across heads *and* “who is looking?” dimension, so we get
     # “attention on token i from all heads & tokens j.”
     # Another approach is “how much each token i attends to token j,” etc., but we’ll keep it simpler.
     
