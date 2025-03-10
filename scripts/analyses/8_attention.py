@@ -288,7 +288,7 @@ def main():
     plt.savefig(os.path.join(OUTPUT_DIR, "plot_attn_on_all.png"))
     plt.close()
 
-    # You can add more specialized plots (e.g., distribution histograms, layer-by-layer differences, etc.)
+    # ! Will add more specialised plots (e.g., distribution histograms, layer-by-layer differences, etc.)
 
     print("All plots saved to:", OUTPUT_DIR)
 
