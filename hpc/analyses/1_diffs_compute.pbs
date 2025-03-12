@@ -1,6 +1,6 @@
 #!/bin/bash
 #PBS -N 1_diffs_compute
-#PBS -l select=1:ncpus=8:mem=16gb
+#PBS -l select=1:ncpus=8:mem=32gb
 #PBS -l walltime=00:50:00
 #PBS -o logs/1_diffs_compute.out
 #PBS -e logs/1_diffs_compute.err
@@ -9,6 +9,10 @@
 cd $PBS_O_WORKDIR
 
 echo "$(date "+%Y-%m-%d %H:%M:%S") - 1_diffs_compute started" >> $HOME/times.log
+
+export FIRST_DIR="output/extractions/gemma2b/normal"
+export SECOND_DIR="output/extractions/gemma2b/urgent"
+export DIFF_DIR="output/differences/normal_urgent"
 
 # Paths
 CONTAINER_PATH="$PBS_O_WORKDIR/containers/mechinterp_cont.sif"

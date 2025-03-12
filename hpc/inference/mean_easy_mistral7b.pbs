@@ -1,0 +1,24 @@
+#!/bin/bash
+#PBS -N mean_easy_mistral7b
+#PBS -l select=1:ncpus=8:ngpus=1:mem=32gb
+#PBS -l walltime=16:00:00
+#PBS -o logs/mean_easy_mistral7b.out
+#PBS -e logs/mean_easy_mistral7b.err
+
+# Move to the directory from which job submitted
+cd $PBS_O_WORKDIR
+
+echo "$(date "+%Y-%m-%d %H:%M:%S") - mean_easy_mistral7b started" >> $HOME/times.log
+nvidia-smi --query-gpu=name --format=csv,noheader
+
+# Paths
+CONTAINER_PATH="$PBS_O_WORKDIR/containers/mechinterp_cont.sif"
+SCRIPT_PATH="$PBS_O_WORKDIR/scripts/inference/mean_easy_mistral7b.py"
+
+# Run the script inside the container
+singularity exec --nv \
+    -B "$HOME/activation_training:/workspace" \
+    "$CONTAINER_PATH" \
+    python "$SCRIPT_PATH" --tensor-parallel
+
+echo "$(date "+%Y-%m-%d %H:%M:%S") - mean_easy_mistral7b finished" >> $HOME/times.log
