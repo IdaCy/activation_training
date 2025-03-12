@@ -1,43 +1,93 @@
 import os
-import logging
 import torch
+import logging
 import pandas as pd
 from transformers import AutoTokenizer, AutoModelForCausalLM
 
 # ------------------------------------------------------------------------
 # 1. Configuration and Setup
 # ------------------------------------------------------------------------
-PROMPT_FILE = globals().get("PROMPT_FILE", "prompts/nice.csv")
-OUTPUT_DIR = globals().get("OUTPUT_DIR", "output/extractions/nice")
+PROMPT_FILE = (
+    os.environ.get("PROMPT_FILE")
+    or globals().get("PROMPT_FILE")
+    or "prompts/nice.csv"
+)
+
+OUTPUT_DIR = (
+    os.environ.get("OUTPUT_DIR")
+    or globals().get("OUTPUT_DIR")
+    or "output/extractions/nice"
+)
 os.makedirs(OUTPUT_DIR, exist_ok=True)
 
-MODEL_NAME = globals().get("MODEL_NAME", "google/gemma-2-2b")
+MODEL_NAME = (
+    os.environ.get("MODEL_NAME")
+    or globals().get("MODEL_NAME")
+    #or "google/gemma-2-2b"
+    or "google/gemma-2-2b"
+)
 
-BATCH_SIZE = globals().get("BATCH_SIZE", 2)
-USE_BFLOAT16 = globals().get("USE_BFLOAT16", True)
-MAX_SEQ_LENGTH = globals().get("MAX_SEQ_LENGTH", 2048)
+BATCH_SIZE = int(
+    os.environ.get("BATCH_SIZE")
+    or globals().get("BATCH_SIZE", 4)
+)
 
-EXTRACT_HIDDEN_LAYERS = globals().get("EXTRACT_HIDDEN_LAYERS", [0, 5, 10, 15, 20, 25])
-EXTRACT_ATTENTION_LAYERS = globals().get("EXTRACT_ATTENTION_LAYERS", [0, 5, 10, 15, 20, 25])
-TOP_K_LOGITS = globals().get("TOP_K_LOGITS", 10)
+USE_BFLOAT16 = (
+    os.environ.get("USE_BFLOAT16") 
+    or globals().get("USE_BFLOAT16", True)
+)
+# If USE_BFLOAT16 might be a string from env, you can do:
+# USE_BFLOAT16 = (os.environ.get("USE_BFLOAT16") or globals().get("USE_BFLOAT16", True))
+# USE_BFLOAT16 = (True if str(USE_BFLOAT16).lower() == "true" else False)
 
-LOG_FILE = globals().get("LOG_FILE", "logs/nice_gemma_run_progress.log")
-ERROR_LOG = globals().get("ERROR_LOG", "logs/nice_gemma_run_errors.log")
+MAX_SEQ_LENGTH = int(
+    os.environ.get("MAX_SEQ_LENGTH")
+    or globals().get("MAX_SEQ_LENGTH", 2048)
+)
+
+EXTRACT_HIDDEN_LAYERS = (
+    os.environ.get("EXTRACT_HIDDEN_LAYERS")
+    or globals().get("EXTRACT_HIDDEN_LAYERS", [0, 5, 10, 15, 20, 25])
+)
+EXTRACT_ATTENTION_LAYERS = (
+    os.environ.get("EXTRACT_ATTENTION_LAYERS")
+    or globals().get("EXTRACT_ATTENTION_LAYERS", [0, 5, 10, 15, 20, 25])
+)
+
+TOP_K_LOGITS = int(
+    os.environ.get("TOP_K_LOGITS")
+    or globals().get("TOP_K_LOGITS", 10)
+)
+
+LOG_FILE = (
+    os.environ.get("LOG_FILE")
+    or globals().get("LOG_FILE")
+    or "logs/jb_small_run_progress.log"
+)
+ERROR_LOG = (
+    os.environ.get("ERROR_LOG")
+    or globals().get("ERROR_LOG")
+    or "logs/inf_gemma2b.log"
+)
 os.makedirs(os.path.dirname(LOG_FILE), exist_ok=True)
 os.makedirs(os.path.dirname(ERROR_LOG), exist_ok=True)
 
-NUM_SAMPLES = globals().get("NUM_SAMPLES", None)
+# Limit how many total samples to process
+NUM_SAMPLES = (
+    os.environ.get("NUM_SAMPLES")
+    or globals().get("NUM_SAMPLES", None)
+)
 if isinstance(NUM_SAMPLES, str) and NUM_SAMPLES.isdigit():
     NUM_SAMPLES = int(NUM_SAMPLES)
 
+# Hugging Face token from environment or globals
 HF_TOKEN = os.environ.get("HF_TOKEN", None)
 hf_token_src = "environment" if HF_TOKEN else "none"
-
 if not HF_TOKEN:
-    # Check globals as fallback
-    possible_global_token = globals().get("HF_TOKEN", None)
-    if possible_global_token:
-        HF_TOKEN = possible_global_token
+    # fallback to Python globals
+    possible_token = globals().get("HF_TOKEN", None)
+    if possible_token:
+        HF_TOKEN = possible_token
         hf_token_src = "globals"
 
 # ------------------------------------------------------------------------
