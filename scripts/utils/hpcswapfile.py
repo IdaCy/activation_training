@@ -52,6 +52,7 @@ def copy_and_replace(file1, file2):
     
     print(f"Created '{file2}' with necessary replacements.")
 
+
 if __name__ == "__main__":
     if len(sys.argv) != 3:
         print("Usage: python scripts/utils/swapfile.py <file1.pbs> <file2.pbs>")
