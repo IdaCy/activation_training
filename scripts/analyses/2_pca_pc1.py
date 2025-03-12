@@ -11,13 +11,13 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 DIFF_DIR = (
     os.environ.get("DIFF_DIR")
     or globals().get("DIFF_DIR")
-    or "outputs/differences"
+    or "output/differences/normal_nicer"
 )
 
 PCA_DIR = (
     os.environ.get("PCA_DIR")
     or globals().get("PCA_DIR")
-    or "outputs/PCA"
+    or "output/PCA/normal_nicer"
 )
 os.makedirs(PCA_DIR, exist_ok=True)
 

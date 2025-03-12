@@ -11,7 +11,7 @@ from transformers import AutoTokenizer
 # --------------------------------------------------------------------
 # Configuration
 # --------------------------------------------------------------------
-MODEL_NAME = "google/gemma-2-2b"  # Or the same model used in extraction
+MODEL_NAME = "google/gemma-2-2b"
 DATA_NORMAL_DIR = "output/extractions/gemma2b/normal"
 DATA_NICER_DIR = "output/extractions/gemma2b/nicer"
 OUTPUT_DIR = "output/attention/normal_nicer"

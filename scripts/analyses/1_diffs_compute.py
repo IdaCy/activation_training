@@ -7,19 +7,18 @@ from tqdm import tqdm
 FIRST_DIR = (
     os.environ.get("FIRST_DIR")
     or globals().get("FIRST_DIR")
-    or "output/extractions/good"
+    or "output/extractions/gemma2b/normal"
 )
-
 SECOND_DIR = (
     os.environ.get("SECOND_DIR")
     or globals().get("SECOND_DIR")
-    or "output/extractions/bad"
+    or "output/extractions/gemma2b/nicer"
 )
 
 DIFF_DIR = (
     os.environ.get("DIFF_DIR")
     or globals().get("DIFF_DIR")
-    or "output/differences/first_good_small"
+    or "output/differences/normal_nicer"
 )
 os.makedirs(DIFF_DIR, exist_ok=True)
 

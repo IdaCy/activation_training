@@ -25,8 +25,8 @@ SECOND_DIR = (
     or "output/extractions/gemma2b/nicer"
 )
 LOG_NAME = (
-    os.environ.get("SECOND_DIR")
-    or globals().get("SECOND_DIR")
+    os.environ.get("LOG_NAME")
+    or globals().get("LOG_NAME")
     or "normal_nicer"
 )
 
